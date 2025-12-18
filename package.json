@@ -1,0 +1,40 @@
+{
+  "name": "@thezelijah/majik-money",
+  "version": "1.0.0",
+  "description": "Majik Money is an institutional-grade implementation of the Money Pattern in TypeScript. Using decimal.js, it eliminates floating-point errors in JavaScript, providing mathematically exact and audit-ready financial calculations for bonds, investments, and cashflows.",
+  "license": "ISC",
+  "author": "Zelijah <business@thezelijah.world>",
+  "type": "module",
+  "main": "index.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jedlsf/majik-money.git"
+  },
+  "keywords": [
+    "money",
+    "currency",
+    "decimal",
+    "financial-calculator",
+    "precise-math",
+    "audit-ready",
+    "financial-precision",
+    "typescript",
+    "javascript",
+    "money-pattern",
+    "currency-conversion",
+    "financial-modeling"
+  ],
+  "homepage": "https://github.com/jedlsf/majik-money#readme",
+  "bugs": {
+    "url": "https://github.com/jedlsf/majik-money/issues"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0",
+    "typescript": "^5.9.3"
+  }
+}
