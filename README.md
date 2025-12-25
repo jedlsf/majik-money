@@ -91,8 +91,13 @@ const majorAmount = MajikMoney.fromMajor(1234.56, "PHP");
 // From minor units (integer, e.g., centavos)
 const minorAmount = MajikMoney.fromMinor(123456, "PHP");
 
+// Default zero with currency
+const zeroAmount = MajikMoney.zero("PHP")
+// Use CURRENCIES from /currency.ts
+
 console.log(majorAmount.format()); // "₱1,234.56"
 console.log(minorAmount.format()); // "₱1,234.56"
+console.log(zeroAmount.format()); // "₱0.00"
 ;   
 
 ```
