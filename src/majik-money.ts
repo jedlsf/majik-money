@@ -7,7 +7,7 @@ import { CURRENCIES, CurrencyDefinition } from "./currency";
  * - rounding uses ROUND_HALF_EVEN (bankers rounding)
  */
 Decimal.set({
-  precision: 40,
+  precision: 100, // increased to support extended-precision division and operations
   rounding: Decimal.ROUND_HALF_EVEN,
   toExpNeg: -20,
   toExpPos: 50,
@@ -33,78 +33,43 @@ export interface MajikMoneyJSON {
  * - Immutable: all operations return new `MajikMoney` instances.
  * - Arbitrary precision arithmetic via [decimal.js](https://mikemcl.github.io/decimal.js/).
  * - Supports currency-aware calculations (ISO 4217 codes).
- * - Provides factory methods, conversions, allocation, and FX conversion.
- *
- * @example
- * ```ts
- * const price = new MajikMoney(123_45, CURRENCIES['PHP']); // ₱123.45
- * const total = price.add(MajikMoney.fromMajor(50, 'PHP'));
- * console.log(total.format()); // "₱173.45"
- * ```
+ * - Provides factory methods, conversions, allocation, pricing/tax helpers, rounding, and FX conversion.
  */
 export class MajikMoney {
-  /**
-   * Internal minor units (integer) for precise calculations.
-   * Use {@link toMajor} or {@link format} for human-readable values.
-   * @private
-   */
   private readonly amount: Decimal;
-
-  /**
-   * ISO 4217 currency definition for this instance.
-   * Immutable after construction.
-   */
   readonly currency: CurrencyDefinition;
 
-  /**
-   * Create a MajikMoney instance.
-   * @param amount - Numeric value in minor units or any Decimal-compatible input.
-   * @param currency - Currency definition. Defaults to PHP.
-   */
   constructor(
     amount: Decimal.Value,
-    currency: CurrencyDefinition = CURRENCIES["PHP"]
+    currency: CurrencyDefinition = CURRENCIES["PHP"],
   ) {
     this.amount = new Decimal(amount).toDecimalPlaces(0);
     this.currency = currency;
   }
 
   // ---------------------------------------------------------------------------
-  // Factory helpers
+  // 🏗️ Construction
   // ---------------------------------------------------------------------------
 
   static zero(currencyCode: string): MajikMoney {
     const currency = CURRENCIES[currencyCode];
-    if (!currency) throw new Error("Unsupported currency");
+    if (!currency) throw new Error(`Unsupported currency ${currencyCode}`);
     return new MajikMoney(0, currency);
   }
 
-  /**
-   * Build a `MajikMoney` instance from minor units (e.g., centavos).
-   * @param minor - Value in minor units.
-   * @param currencyCode - ISO 4217 currency code.
-   * @returns New `MajikMoney` instance.
-   */
   static fromMinor(minor: Decimal.Value, currencyCode: string): MajikMoney {
     const currency = CURRENCIES[currencyCode];
+    if (!currency) throw new Error(`Unsupported currency ${currencyCode}`);
     return new MajikMoney(minor, currency);
   }
 
-  /**
-   * Build a `MajikMoney` instance from major units (e.g., pesos).
-   * @param amount - Numeric value in major units.
-   * @param currencyCode - ISO 4217 currency code.
-   * @param rounding - Rounding mode for conversion to minor units. Default: `ROUND_HALF_EVEN`.
-   * @returns New `MajikMoney` instance.
-   * @throws Error if the currency code is unsupported.
-   */
   static fromMajor(
     amount: Decimal.Value,
     currencyCode: string,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
     const currency = CURRENCIES[currencyCode];
-    if (!currency) throw new Error("Unsupported currency");
+    if (!currency) throw new Error(`Unsupported currency ${currencyCode}`);
 
     const factor = new Decimal(10).pow(currency.minorUnits);
     const minor = new Decimal(amount).mul(factor);
@@ -112,13 +77,6 @@ export class MajikMoney {
     return new MajikMoney(minor.toDecimalPlaces(0, rounding), currency);
   }
 
-  /**
-   * Parse a `MajikMoney` instance from a plain object.
-   * Useful for JSON deserialization.
-   * @param data - Object containing `amount` and `currency`.
-   * @returns New `MajikMoney` instance.
-   * @throws Error if currency is missing or unsupported.
-   */
   static parseFromJSON(data: MajikMoneyJSON): MajikMoney {
     if (typeof data.currency !== "string") {
       throw new Error("Invalid currency type. Expected string.");
@@ -130,40 +88,53 @@ export class MajikMoney {
   }
 
   // ---------------------------------------------------------------------------
-  // Conversions
+  // 🔎 Representation
   // ---------------------------------------------------------------------------
 
-  /**
-   * Convert to major units (human-readable numeric).
-   * @returns Amount in major units (e.g., pesos/dollars).
-   */
+  toMinor(): number {
+    return this.amount.toNumber();
+  }
+  toMinorDecimal(): Decimal {
+    return this.amount;
+  }
+  toMinorString(): string {
+    return this.amount.toFixed(0);
+  }
+  toMinorBigInt(): bigint {
+    return BigInt(this.amount.toFixed(0));
+  }
   toMajor(): number {
-    return this.amount
-      .div(new Decimal(10).pow(this.currency.minorUnits))
-      .toNumber();
+    return this.toMajorDecimal().toNumber();
   }
 
-  /**
-   * Convert to major units as a Decimal (preserves precision).
-   * @returns Decimal representation in major units.
-   */
   toMajorDecimal(): Decimal {
     return this.amount.div(new Decimal(10).pow(this.currency.minorUnits));
   }
 
-  /**
-   * Convert to minor units (integer, e.g., centavos).
-   * @returns Amount in minor units.
-   */
-  toMinor(): number {
-    return this.amount.toNumber();
+  toMajorString(
+    dp?: number,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): string {
+    const places = dp ?? this.currency.minorUnits;
+    return this.toMajorDecimal().toFixed(places, rounding);
   }
 
-  /**
-   * Format as a localized currency string.
-   * @param locale - Optional locale string, default `'en-PH'`.
-   * @returns Localized string (e.g., "PHP 1,234.56").
-   */
+  toString(): string {
+    return `${this.toMajorString()} ${this.currency.code}`;
+  }
+
+  toCanonicalString(): string {
+    return `${this.currency.code} ${this.toMinorString()}`;
+  }
+
+  toJSON(): MajikMoneyJSON {
+    return {
+      __type: "MajikMoney",
+      amount: this.amount.toString(),
+      currency: this.currency.code,
+    };
+  }
+
   format(locale = "en-PH"): string {
     return new Intl.NumberFormat(locale, {
       style: "currency",
@@ -177,103 +148,71 @@ export class MajikMoney {
   // ➕ Arithmetic (immutable)
   // ---------------------------------------------------------------------------
 
-  /** Add another `MajikMoney` instance of the same currency. */
   add(other: MajikMoney): MajikMoney {
     this.assertSameCurrency(other);
     return new MajikMoney(this.amount.add(other.amount), this.currency);
   }
 
-  /** Subtract another `MajikMoney` instance of the same currency, optionally normalizing the result. */
   subtract(other: MajikMoney, min?: number, max?: number): MajikMoney {
     this.assertSameCurrency(other);
 
     let result = this.amount.sub(other.amount);
 
-    // Apply min/max normalization if defined
     if (min !== undefined) result = Decimal.max(result, new Decimal(min));
     if (max !== undefined) result = Decimal.min(result, new Decimal(max));
 
     return new MajikMoney(result, this.currency);
   }
 
-  /**
-   * Multiply by a numeric factor (arbitrary precision).
-   * @param factor - Multiplier.
-   * @param rounding - Rounding mode for minor units.
-   */
   multiply(
     factor: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
-    const result = this.amount.mul(factor);
+    const dFactor = new Decimal(factor);
+    if (!dFactor.isFinite()) throw new Error("Factor must be finite");
+    const result = this.amount.mul(dFactor);
     return new MajikMoney(result.toDecimalPlaces(0, rounding), this.currency);
   }
 
-  /**
-   * Multiply this amount by a Decimal factor WITHOUT rounding.
-   * Intended for analytical / mathematical use (e.g., discounting).
-   * @param factor - Multiplier.
-   * @returns Decimal result in minor units.
-   */
-  multiplyDecimal(factor: Decimal.Value): Decimal {
-    return this.amount.mul(factor);
-  }
-
-  /**
-   * Divide by a numeric divisor.
-   * @param divisor - Number to divide by.
-   * @param rounding - Rounding mode for minor units.
-   */
   divide(
     divisor: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
-    const result = this.amount.div(divisor);
+    const d = new Decimal(divisor);
+    if (!d.isFinite()) throw new Error("Divisor must be finite");
+    if (d.isZero()) throw new Error("Cannot divide MajikMoney by zero");
+    const result = this.amount.div(d);
     return new MajikMoney(result.toDecimalPlaces(0, rounding), this.currency);
   }
 
-  /**
-   * Inverted division: divides a scalar by this monetary amount.
-   * This is an algebraic helper, NOT a unit-safe economic operation.
-   *
-   * Example:
-   * ₱100.invertDivide(2) = ₱0.02
-   *
-   * @param dividend - Numeric value to divide by this amount.
-   * @param rounding - Rounding mode for minor units.
-   * @returns New MajikMoney instance.
-   * @throws Error if amount is zero.
-   */
+  multiplyDecimal(factor: Decimal.Value): Decimal {
+    const dFactor = new Decimal(factor);
+    if (!dFactor.isFinite()) throw new Error("Factor must be finite");
+    return this.amount.mul(dFactor);
+  }
+
+  divideDecimal(divisor: Decimal.Value): Decimal {
+    const d = new Decimal(divisor);
+    if (!d.isFinite()) throw new Error("Divisor must be finite");
+    if (d.isZero()) throw new Error("Cannot divide MajikMoney by zero");
+    return this.amount.div(d);
+  }
+
   invertDivide(
     dividend: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
-    // use major units to compute the proportion correctly
+    const dDividend = new Decimal(dividend);
+    if (!dDividend.isFinite()) throw new Error("Dividend must be finite");
     const majorThis = this.toMajorDecimal();
     if (majorThis.isZero()) {
       throw new Error("Cannot divide by zero money amount");
     }
 
-    const resultMajor = new Decimal(dividend).div(majorThis);
-    // return as MajikMoney with major value resultMajor
+    const resultMajor = dDividend.div(majorThis);
     return MajikMoney.fromMajor(resultMajor, this.currency.code, rounding);
   }
 
-  /**
-   * Divide this amount by a Decimal divisor WITHOUT rounding.
-   * @param divisor - Divisor.
-   * @returns Decimal result in minor units.
-   */
-  divideDecimal(divisor: Decimal.Value): Decimal {
-    return this.amount.div(divisor);
-  }
-
-  /**
-   * Divide by another MajikMoney to produce a unitless ratio.
-   * @param other - Another MajikMoney instance (same currency).
-   * @returns Unitless ratio as a number.
-   * @throws Error if currencies mismatch or divisor is zero.
-   */
   ratio(other: MajikMoney): number {
     this.assertSameCurrency(other);
     if (other.amount.isZero()) {
@@ -282,7 +221,216 @@ export class MajikMoney {
     return this.amount.div(other.amount).toNumber();
   }
 
-  /** Check equality of amount and currency. */
+  compound(
+    rate: Decimal.Value,
+    periods: number,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    const dRate = new Decimal(rate);
+    if (!dRate.isFinite()) throw new Error("Rate must be finite");
+    const factor = new Decimal(1).add(dRate).pow(periods);
+    return this.multiply(factor, rounding);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 📐 Percentage
+  // ---------------------------------------------------------------------------
+
+  percentage(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    const dRate = new Decimal(rate);
+    if (!dRate.isFinite()) throw new Error("Rate must be finite");
+    return this.multiply(dRate, rounding);
+  }
+
+  applyPercentage(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    return this.percentage(rate, rounding);
+  }
+
+  addPercentage(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    return this.add(this.percentage(rate, rounding));
+  }
+
+  subtractPercentage(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    return this.subtract(this.percentage(rate, rounding));
+  }
+
+  removePercentage(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    const divisor = new Decimal(1).add(rate);
+    if (divisor.isZero()) {
+      throw new Error("Invalid rate: 1 + rate cannot be zero");
+    }
+    return this.divide(divisor, rounding);
+  }
+
+  percentageOf(total: MajikMoney): Decimal {
+    this.assertSameCurrency(total);
+    if (total.amount.isZero()) {
+      throw new Error("Cannot compute percentageOf a zero amount");
+    }
+    return this.amount.div(total.amount).mul(100);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🏷️ Pricing mathematics
+  // ---------------------------------------------------------------------------
+
+  discount(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.subtractPercentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  discountAmount(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.percentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  markup(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.addPercentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  markupAmount(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.percentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🧾 Tax / fee mathematics
+  // ---------------------------------------------------------------------------
+
+  tax(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.percentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  taxInclusive(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.addPercentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  taxExclusive(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.removePercentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  taxComponent(
+    rate: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    return this.subtract(this.taxExclusive(rate, rounding));
+  }
+
+  feePercentage(rate: Decimal.Value, rounding?: Decimal.Rounding): MajikMoney {
+    return this.percentage(rate, rounding ?? Decimal.ROUND_HALF_EVEN);
+  }
+
+  feeAmount(flatFee: MajikMoney): MajikMoney {
+    return this.add(flatFee);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🧩 Allocation
+  // ---------------------------------------------------------------------------
+
+  allocate(ratios: number[]): MajikMoney[] {
+    if (ratios.length === 0) throw new Error("At least one ratio is required");
+
+    let total = 0;
+    for (const r of ratios) {
+      if (typeof r !== "number" || !Number.isFinite(r) || r < 0) {
+        throw new Error("Ratios must be non-negative and finite");
+      }
+      total += r;
+    }
+
+    if (total <= 0) throw new Error("Sum of ratios must be greater than zero");
+
+    let remainder = this.amount;
+    let remainingTotal = total;
+
+    return ratios.map((ratio, i) => {
+      let share: Decimal;
+
+      if (i === ratios.length - 1) {
+        share = remainder;
+      } else if (remainingTotal === 0) {
+        share = new Decimal(0);
+      } else {
+        share = remainder
+          .mul(ratio)
+          .div(remainingTotal)
+          .toDecimalPlaces(0, Decimal.ROUND_HALF_DOWN);
+      }
+
+      remainder = remainder.sub(share);
+      remainingTotal -= ratio;
+
+      return new MajikMoney(share, this.currency);
+    });
+  }
+
+  allocatePercentages(percentages: number[], tolerance = 0.01): MajikMoney[] {
+    const total = percentages.reduce((a, b) => a + b, 0);
+    if (total === 0) {
+      throw new Error("Sum of ratios must be greater than zero");
+    }
+    if (Math.abs(total - 100) > tolerance) {
+      throw new Error(`Percentages must sum to 100 (got ${total})`);
+    }
+    return this.allocate(percentages);
+  }
+
+  evenSplit(parts: number): MajikMoney[] {
+    if (!Number.isFinite(parts) || parts <= 0 || !Number.isInteger(parts)) {
+      throw new Error("Number of parts must be > 0");
+    }
+    return this.allocate(Array(parts).fill(1));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🔁 Rounding
+  // ---------------------------------------------------------------------------
+
+  round(rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN): MajikMoney {
+    const roundedMajor = this.toMajorDecimal().toDecimalPlaces(0, rounding);
+    return MajikMoney.fromMajor(roundedMajor, this.currency.code, rounding);
+  }
+
+  roundTo(
+    increment: Decimal.Value,
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
+  ): MajikMoney {
+    const inc = new Decimal(increment);
+    if (inc.lte(0)) throw new Error("increment must be greater than zero");
+    const majorValue = this.toMajorDecimal();
+    const roundedMajor = majorValue
+      .div(inc)
+      .toDecimalPlaces(0, rounding)
+      .mul(inc);
+    return MajikMoney.fromMajor(roundedMajor, this.currency.code, rounding);
+  }
+
+  cashRound(rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN): MajikMoney {
+    const increment =
+      this.currency.cashRoundingIncrement ??
+      new Decimal(1)
+        .div(new Decimal(10).pow(this.currency.minorUnits))
+        .toNumber();
+    return this.roundTo(increment, rounding);
+  }
+
+  // ---------------------------------------------------------------------------
+  // ⚖️ Comparison
+  // ---------------------------------------------------------------------------
+
   equals(other: MajikMoney): boolean {
     return (
       this.currency.code === other.currency.code &&
@@ -290,194 +438,124 @@ export class MajikMoney {
     );
   }
 
-  /** Check if amount is zero. */
-  isZero(): boolean {
-    return this.amount.isZero();
+  equalsWithin(other: MajikMoney, toleranceMinorUnits: number = 0): boolean {
+    this.assertSameCurrency(other);
+    return this.amount.sub(other.amount).abs().lte(toleranceMinorUnits);
   }
 
-  /** Check if amount is positive. */
-  isPositive(): boolean {
-    return this.amount.gt(0);
+  compare(other: MajikMoney): -1 | 0 | 1 {
+    this.assertSameCurrency(other);
+    if (this.amount.lt(other.amount)) return -1;
+    if (this.amount.gt(other.amount)) return 1;
+    return 0;
   }
 
-  /** Check if amount is negative. */
-  isNegative(): boolean {
-    return this.amount.lt(0);
-  }
-
-  /** Negate the amount (returns new instance). */
-  negate(): MajikMoney {
-    return new MajikMoney(this.amount.neg(), this.currency);
-  }
-
-  /** Absolute value of the amount. */
-  abs(): MajikMoney {
-    return new MajikMoney(this.amount.abs(), this.currency);
-  }
-
-  /** Compare if greater than another instance. */
   greaterThan(other: MajikMoney): boolean {
     this.assertSameCurrency(other);
     return this.amount.gt(other.amount);
   }
 
-  /**
-   * Check if this amount is less than another `MajikMoney` instance.
-   * @param other - Another `MajikMoney` instance to compare against.
-   * @returns `true` if this amount is less than the other, otherwise `false`.
-   * @throws Error if currencies do not match.
-   */
-  lessThan(other: MajikMoney): boolean {
-    this.assertSameCurrency(other);
-    return this.amount.lt(other.amount);
-  }
-
-  /**
-   * Check if this amount is greater than or equal to another `MajikMoney` instance.
-   * @param other - Another `MajikMoney` instance to compare against.
-   * @returns `true` if this amount is greater than or equal to the other, otherwise `false`.
-   * @throws Error if currencies do not match.
-   */
   greaterThanOrEqual(other: MajikMoney): boolean {
     this.assertSameCurrency(other);
     return this.amount.gte(other.amount);
   }
 
-  /**
-   * Check if this amount is less than or equal to another `MajikMoney` instance.
-   * @param other - Another `MajikMoney` instance to compare against.
-   * @returns `true` if this amount is less than or equal to the other, otherwise `false`.
-   * @throws Error if currencies do not match.
-   */
+  lessThan(other: MajikMoney): boolean {
+    this.assertSameCurrency(other);
+    return this.amount.lt(other.amount);
+  }
+
   lessThanOrEqual(other: MajikMoney): boolean {
     this.assertSameCurrency(other);
     return this.amount.lte(other.amount);
   }
 
-  /**
-   * Apply a percentage to this amount.
-   * Useful for calculating interest, tax, or commission.
-   * @param rate - Percentage as a decimal (e.g., 0.05 for 5%).
-   * @param rounding - Rounding mode for minor units. Default is `ROUND_HALF_EVEN`.
-   * @returns New `MajikMoney` instance representing the percentage-applied amount.
-   */
-  applyPercentage(
-    rate: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
-  ): MajikMoney {
-    return this.multiply(rate, rounding);
+  // ---------------------------------------------------------------------------
+  // ➖➕ Sign
+  // ---------------------------------------------------------------------------
+
+  isZero(): boolean {
+    return this.amount.isZero();
+  }
+  isPositive(): boolean {
+    return this.amount.gt(0);
+  }
+  isNegative(): boolean {
+    return this.amount.lt(0);
+  }
+  isNonPositive(): boolean {
+    return this.amount.lte(0);
+  }
+  isNonNegative(): boolean {
+    return this.amount.gte(0);
   }
 
-  /**
-   * Add a percentage of this amount to itself.
-   * Useful for calculating tax-inclusive totals or markup.
-   * @param rate - Percentage as a decimal (e.g., 0.05 for 5%).
-   * @param rounding - Rounding mode for minor units. Default is `ROUND_HALF_EVEN`.
-   * @returns New `MajikMoney` instance representing the amount after adding the percentage.
-   */
-  addPercentage(
-    rate: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
-  ): MajikMoney {
-    return this.add(this.multiply(rate, rounding));
+  sign(): -1 | 0 | 1 {
+    if (this.amount.isZero()) return 0;
+    return this.amount.isNegative() ? -1 : 1;
   }
 
-  /**
-   * Subtract a percentage of this amount from itself.
-   * Useful for discounts or tax deductions.
-   * @param rate - Percentage as a decimal (e.g., 0.05 for 5%).
-   * @param rounding - Rounding mode for minor units. Default is `ROUND_HALF_EVEN`.
-   * @returns New `MajikMoney` instance representing the amount after subtracting the percentage.
-   */
-  subtractPercentage(
-    rate: Decimal.Value,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
-  ): MajikMoney {
-    return this.subtract(this.multiply(rate, rounding));
+  negate(): MajikMoney {
+    return new MajikMoney(this.amount.neg(), this.currency);
   }
 
-  /**
-   * Evenly split this amount into a specified number of parts.
-   * Any remainder due to rounding is added to the last part.
-   * @param parts - Number of equal parts to split the amount into.
-   * @returns Array of `MajikMoney` instances representing each part.
-   * @throws Error if `parts` is less than 1.
-   */
-  evenSplit(parts: number): MajikMoney[] {
-    if (parts <= 0) throw new Error("Number of parts must be > 0");
-    return this.allocate(Array(parts).fill(1));
+  abs(): MajikMoney {
+    return new MajikMoney(this.amount.abs(), this.currency);
   }
 
-  /**
-   * Calculate compound growth on this amount.
-   * Useful for interest, investment growth, or financial projections.
-   * @param rate - Growth rate per period as a decimal (e.g., 0.05 for 5%).
-   * @param periods - Number of compounding periods.
-   * @param rounding - Rounding mode for minor units. Default is `ROUND_HALF_EVEN`.
-   * @returns New `MajikMoney` instance representing the compounded amount.
-   */
-  compound(
-    rate: Decimal.Value,
-    periods: number,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
-  ): MajikMoney {
-    const factor = new Decimal(1).add(rate).pow(periods);
-    return this.multiply(factor, rounding);
+  // ---------------------------------------------------------------------------
+  // 📏 Bounds
+  // ---------------------------------------------------------------------------
+
+  min(other: MajikMoney): MajikMoney {
+    this.assertSameCurrency(other);
+    return this.lessThanOrEqual(other) ? this : other;
   }
 
-  /**
-   * Allocate the amount according to ratios.
-   * Distributes remainder to the last element to avoid rounding loss.
-   * @param ratios - Array of numbers representing relative weights.
-   * @returns Array of allocated `MajikMoney` instances.
-   */
-  allocate(ratios: number[]): MajikMoney[] {
-    const total = ratios.reduce((a, b) => a + b, 0);
-    let remainder = this.amount;
-
-    return ratios.map((ratio, i) => {
-      const share = this.amount
-        .mul(ratio)
-        .div(total)
-        .toDecimalPlaces(0, Decimal.ROUND_DOWN);
-
-      remainder = remainder.sub(share);
-
-      return new MajikMoney(
-        i === ratios.length - 1 ? share.add(remainder) : share,
-        this.currency
-      );
-    });
+  max(other: MajikMoney): MajikMoney {
+    this.assertSameCurrency(other);
+    return this.greaterThanOrEqual(other) ? this : other;
   }
 
-  /**
-   * Convert to another currency given a rate.
-   * @param rate - Conversion rate (target per source unit).
-   * @param targetCurrency - Target currency definition.
-   * @param rounding - Rounding mode for minor units.
-   */
+  clamp(min: MajikMoney, max: MajikMoney): MajikMoney {
+    this.assertSameCurrency(min);
+    this.assertSameCurrency(max);
+    if (min.greaterThan(max)) {
+      throw new Error("clamp: min cannot be greater than max");
+    }
+    return this.max(min).min(max);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 💱 Currency
+  // ---------------------------------------------------------------------------
+
+  isSameCurrency(other: MajikMoney): boolean {
+    return this.currency.code === other.currency.code;
+  }
+
   convert(
     rate: Decimal.Value,
     targetCurrency: CurrencyDefinition,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
-    const majorSource = this.toMajor();
-    const majorTarget = new Decimal(majorSource).mul(rate);
+    const dRate = new Decimal(rate);
+    if (!dRate.isFinite()) throw new Error("Conversion rate must be finite");
+    const majorSource = this.toMajorDecimal();
+    const majorTarget = majorSource.mul(dRate);
     return MajikMoney.fromMajor(majorTarget, targetCurrency.code, rounding);
   }
 
-  /**
-   * Convert using a quoted FX rate (source per 1 unit of target).
-   * @param quotedRate - Quoted rate (source per target unit).
-   * @param targetCurrency - Target currency definition.
-   * @param rounding - Rounding mode for minor units.
-   */
   convertFromQuoted(
     quotedRate: Decimal.Value,
     targetCurrency: CurrencyDefinition,
-    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN
+    rounding: Decimal.Rounding = Decimal.ROUND_HALF_EVEN,
   ): MajikMoney {
-    const rate = new Decimal(1).div(quotedRate);
+    const dQuoted = new Decimal(quotedRate);
+    if (!dQuoted.isFinite() || dQuoted.isZero()) {
+      throw new Error("Quoted rate must be non-zero and finite");
+    }
+    const rate = new Decimal(1).div(dQuoted);
     return this.convert(rate, targetCurrency, rounding);
   }
 
@@ -485,65 +563,52 @@ export class MajikMoney {
   // 📊 Extended Statistics (Static Helpers)
   // ---------------------------------------------------------------------------
 
-  /**
-   * Compute the sum of an array of `MajikMoney` instances.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   * @returns New `MajikMoney` instance representing the sum.
-   * @throws Error if the array is empty or currencies mismatch.
-   */
   static sum(values: MajikMoney[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
     const currency = values[0].currency;
-    const total = values.reduce((acc, m) => {
-      if (m.currency.code !== currency.code)
-        throw new Error("Currency mismatch in sum");
-      return acc.add(m);
-    }, MajikMoney.fromMinor(0, currency.code));
+    const total = values.reduce(
+      (acc, m) => {
+        if (m.currency.code !== currency.code)
+          throw new Error("Currency mismatch in sum");
+        return acc.add(m);
+      },
+      MajikMoney.fromMinor(0, currency.code),
+    );
     return total;
   }
 
-  /**
-   * Compute the arithmetic mean (average) of an array of `MajikMoney` instances.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   * @returns New `MajikMoney` instance representing the average.
-   * @throws Error if the array is empty or currencies mismatch.
-   */
   static average(values: MajikMoney[]): MajikMoney {
     return MajikMoney.sum(values).divide(values.length);
   }
 
-  /**
-   * Compute the weighted average of an array of `MajikMoney` instances.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   * @param weights - Array of numeric weights corresponding to `values`.
-   * @returns New `MajikMoney` instance representing the weighted average.
-   * @throws Error if lengths mismatch or currencies mismatch.
-   */
   static weightedAverage(values: MajikMoney[], weights: number[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
     if (values.length !== weights.length)
       throw new Error("Values and weights length mismatch");
 
     const currency = values[0].currency;
-    let totalWeight = 0;
-    let weightedSum = MajikMoney.fromMinor(0, currency.code);
+    let totalWeight = new Decimal(0);
+    let weightedSumMinor = new Decimal(0);
 
     values.forEach((value, i) => {
       if (value.currency.code !== currency.code)
         throw new Error("Currency mismatch in weightedAverage");
-      weightedSum = weightedSum.add(value.multiply(weights[i]));
-      totalWeight += weights[i];
+
+      const weight = new Decimal(weights[i]);
+      weightedSumMinor = weightedSumMinor.add(
+        value.toMinorDecimal().mul(weight),
+      );
+      totalWeight = totalWeight.add(weight);
     });
 
-    return weightedSum.divide(totalWeight);
+    if (totalWeight.isZero()) throw new Error("Total weight cannot be zero");
+
+    const finalMinor = weightedSumMinor
+      .div(totalWeight)
+      .toDecimalPlaces(0, Decimal.ROUND_HALF_EVEN);
+    return new MajikMoney(finalMinor, currency);
   }
 
-  /**
-   * Compute the median value of an array of `MajikMoney` instances.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   * @returns New `MajikMoney` instance representing the median.
-   * @throws Error if the array is empty or currencies mismatch.
-   */
   static median(values: MajikMoney[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
 
@@ -553,7 +618,7 @@ export class MajikMoney {
         throw new Error("Currency mismatch in median");
       }
     });
-    const sorted = [...values].sort((a, b) => a.toMinor() - b.toMinor());
+    const sorted = [...values].sort((a, b) => a.compare(b));
     const mid = Math.floor(sorted.length / 2);
 
     if (sorted.length % 2 === 0) {
@@ -563,33 +628,28 @@ export class MajikMoney {
     }
   }
 
-  /**
-   * Compute the minimum value in an array of `MajikMoney` instances.
-   */
   static min(values: MajikMoney[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
-    return values.reduce((prev, curr) => (prev.lessThan(curr) ? prev : curr));
+    return values.reduce((prev, curr) => prev.min(curr));
   }
 
-  /**
-   * Compute the maximum value in an array of `MajikMoney` instances.
-   */
   static max(values: MajikMoney[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
-    return values.reduce((prev, curr) =>
-      prev.greaterThan(curr) ? prev : curr
-    );
+    return values.reduce((prev, curr) => prev.max(curr));
   }
 
-  /**
-   * Compute the variance of an array of `MajikMoney` instances.
-   * Uses population variance formula.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   */
   static variance(values: MajikMoney[]): MajikMoney {
     if (values.length === 0) throw new Error("No values provided");
-    const mean = MajikMoney.average(values).toMajorDecimal();
     const currency = values[0].currency;
+
+    const sumExact = values.reduce((acc, m) => {
+      if (m.currency.code !== currency.code)
+        throw new Error("Currency mismatch");
+      return acc.add(m.toMajorDecimal());
+    }, new Decimal(0));
+
+    const mean = sumExact.div(values.length);
+
     const sumSquared = values.reduce((acc, m) => {
       const diff = m.toMajorDecimal().sub(mean);
       return acc.add(diff.mul(diff));
@@ -599,48 +659,36 @@ export class MajikMoney {
     return MajikMoney.fromMajor(varianceMajor, currency.code);
   }
 
-  /**
-   * Compute the standard deviation of an array of `MajikMoney` instances.
-   * @param values - Array of `MajikMoney` instances (must all be same currency).
-   */
   static standardDeviation(values: MajikMoney[]): MajikMoney {
-    const varianceValue = MajikMoney.variance(values).toMajorDecimal();
-    return MajikMoney.fromMajor(varianceValue.sqrt(), values[0].currency.code);
+    if (values.length === 0) throw new Error("No values provided");
+    const currency = values[0].currency;
+
+    const sumExact = values.reduce((acc, m) => {
+      if (m.currency.code !== currency.code)
+        throw new Error("Currency mismatch");
+      return acc.add(m.toMajorDecimal());
+    }, new Decimal(0));
+
+    const mean = sumExact.div(values.length);
+
+    const sumSquared = values.reduce((acc, m) => {
+      const diff = m.toMajorDecimal().sub(mean);
+      return acc.add(diff.mul(diff));
+    }, new Decimal(0));
+
+    const exactVariance = sumSquared.div(values.length);
+    return MajikMoney.fromMajor(exactVariance.sqrt(), currency.code);
   }
 
-  /**
-   * Serialize instance to JSON.
-   * @returns JSON object matching {@link MajikMoneyJSON}.
-   */
-  toJSON(): MajikMoneyJSON {
-    return {
-      __type: "MajikMoney",
-      amount: this.amount.toString(),
-      currency: this.currency.code,
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Internal helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Assert both instances share the same currency.
-   * @private
-   * @throws Error if currencies mismatch.
-   */
   private assertSameCurrency(other: MajikMoney) {
     if (this.currency.code !== other.currency.code) {
       throw new Error(
-        `Currency mismatch: ${this.currency.code} vs ${other.currency.code}`
+        `Currency mismatch: ${this.currency.code} vs ${other.currency.code}`,
       );
     }
   }
 }
 
-/**
- * Recursively converts MajikMoney instances to JSON.
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function serializeMoney(obj: any): any {
   if (obj instanceof MajikMoney) {
@@ -660,12 +708,9 @@ export function serializeMoney(obj: any): any {
     return result;
   }
 
-  return obj; // primitive
+  return obj;
 }
 
-/**
- * Recursively converts JSON representing MajikMoney into MajikMoney instances.
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function deserializeMoney(obj: any): any {
   if (obj && typeof obj === "object" && obj.__type === "MajikMoney") {
@@ -685,5 +730,5 @@ export function deserializeMoney(obj: any): any {
     return result;
   }
 
-  return obj; // primitive
+  return obj;
 }

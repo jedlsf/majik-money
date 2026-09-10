@@ -1,0 +1,494 @@
+# Majik Money
+
+[![Developed by Zelijah](https://img.shields.io/badge/Developed%20by-Zelijah-red?logo=github&logoColor=white)](https://thezelijah.world) ![GitHub Sponsors](https://img.shields.io/github/sponsors/jedlsf?style=plastic&label=Sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2Fjedlsf)
+![npm](https://img.shields.io/npm/v/@thezelijah/majik-money) ![npm downloads](https://img.shields.io/npm/dm/@thezelijah/majik-money) ![npm bundle size](https://img.shields.io/bundlephobia/min/%40thezelijah%2Fmajik-money) [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) ![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)
+
+**Majik Money** is a lightweight JavaScript/TypeScript library for precise money and currency modeling, engineered to eliminate floating-point errors inherent in JavaScript.
+It's built for **financial calculations, accounting, pricing, taxes, currency conversion, and money-based simulations** where the result has to be exactly right — not just close.
+
+---
+
+## Features
+
+- Represent money and currencies with full decimal precision using [decimal.js](https://www.npmjs.com/package/decimal.js).
+- Arithmetic (add, subtract, multiply, divide) with zero floating-point drift.
+- Automatic, correctly-rounded conversion between minor and major currency units.
+- Purpose-built helpers for **pricing** (discounts, markups), **tax** (inclusive/exclusive, VAT-style back-calculation), and **fees**.
+- Allocation and even-splitting with remainder-safe rounding — no lost centavos.
+- Rounding strategies for whole units, arbitrary increments, and cash-denomination rounding.
+- Full comparison suite, including tolerance-based equality and a standard 3-way comparator for sorting.
+- Currency conversion between defined currencies, by direct or quoted FX rate.
+- Chainable, immutable API — every operation returns a new instance.
+- Serialize/deserialize with `toJSON()` / `parseFromJSON()`, including recursive helpers for nested objects.
+- Array-level statistics: sum, average, weighted average, median, min, max, variance, standard deviation.
+- Fully TypeScript-friendly with strict type safety.
+- Works in Node.js and browser environments.
+
+---
+
+## Why Majik Money is More Than decimal.js
+
+[decimal.js](https://www.npmjs.com/package/decimal.js) gives you arbitrary-precision arithmetic. Majik Money wraps it in a full financial and currency layer, designed for real-world applications:
+
+### Currency & Unit Awareness
+
+- Each instance is tied to an ISO 4217 currency (USD, PHP, etc.), including minor unit handling (cents, centavos).
+- Automatic, correctly-rounded conversion between major units (dollars/pesos) and minor units (cents/centavos).
+- Guards against mixing currencies — cross-currency arithmetic throws instead of silently producing a wrong number.
+
+### Immutable, Chainable Operations
+
+- All operations (`add`, `subtract`, `multiply`, `percentage`, ...) return new `MajikMoney` instances — nothing is mutated in place.
+- Chainable API enables concise, readable financial calculations.
+
+### Pricing, Tax & Fee Mathematics
+
+- Purpose-named methods for the operations you actually write in commerce and accounting code: `discount`, `markup`, `tax`, `taxInclusive`, `taxExclusive`, `taxComponent`, `feePercentage`, `feeAmount`.
+- `taxExclusive` / `removePercentage` solve the problem plain percentage math can't: given a tax- or markup-inclusive total, recover the original base amount.
+
+### Allocation & Splitting
+
+- Split amounts evenly, by custom ratios, or by explicit percentages, with remainders handled correctly (no amount is ever lost or duplicated to rounding).
+- Perfect for payroll, expense sharing, revenue share, or dividing investments.
+
+### Rounding, the Way Real Money Rounds
+
+- `round()` for whole-unit rounding, `roundTo()` for arbitrary increments (nearest quarter, nearest 5, etc.), and `cashRound()` for physical cash settlement in currencies that no longer mint their smallest coin.
+
+### Percentage & Compound Calculations
+
+- Built-in methods for applying, adding, subtracting, or reversing percentages — for taxes, discounts, markups, or interest.
+- Compound growth calculations as `MajikMoney` objects, preserving precision and rounding rules.
+
+### Full Comparison Suite
+
+- The usual `equals`, `greaterThan`, `lessThan`, etc., plus a standard `compare()` 3-way comparator for `Array.prototype.sort`, and `equalsWithin()` for tolerance-based equality after chained conversions.
+
+### Serialization & Safe JSON
+
+- Includes currency info and a type hint for safe storage and transport.
+- Recursive helpers (`serializeMoney` / `deserializeMoney`) make working with nested objects seamless.
+
+### Statistical Helpers
+
+- Array-level calculations — `sum`, `average`, `weightedAverage`, `median`, `min`, `max`, `variance`, `standardDeviation` — all with currency-mismatch safety.
+
+### Currency Conversion & FX Support
+
+- Convert between currencies with an explicit rate or a quoted FX rate.
+- Avoids the rounding and unit-mixing errors that come from doing this by hand.
+
+### Human-Friendly Formatting
+
+- Localized currency formatting (`₱1,234.56`) ready for display, plus plain fixed-point and canonical string forms for logs, CSVs, and machine-to-machine use.
+
+### Domain-Specific Utilities
+
+- Inverted division (`invertDivide`) for financial ratios.
+- `bigint` export for minor units, for systems that store money as 64-bit integers.
+- Designed specifically for money modeling, not just numbers.
+
+**In short:** decimal.js handles numbers. Majik Money handles real money — safely, accurately, and with all the financial logic your applications need.
+
+---
+
+## 📦 Installation
+
+```bash
+npm i @thezelijah/majik-money
+```
+
+---
+
+## Usage
+
+### Create a Money Instance
+
+```ts
+import { MajikMoney, CURRENCIES } from "@thezelijah/majik-money";
+
+// From major units (human-readable, e.g., dollars/pesos)
+const majorAmount = MajikMoney.fromMajor(1234.56, "PHP");
+
+// From minor units (integer, e.g., centavos)
+const minorAmount = MajikMoney.fromMinor(123456, "PHP");
+
+// Default zero with currency
+const zeroAmount = MajikMoney.zero("PHP");
+
+console.log(majorAmount.format()); // "₱1,234.56"
+console.log(minorAmount.format()); // "₱1,234.56"
+console.log(zeroAmount.format());  // "₱0.00"
+```
+
+### Representation
+
+```ts
+const price = MajikMoney.fromMajor(1234.5, "PHP");
+
+price.toMajor();          // 1234.5   (number)
+price.toMajorDecimal();   // Decimal("1234.5")
+price.toMajorString();    // "1234.50"
+price.toMinor();          // 123450   (number)
+price.toMinorDecimal();   // Decimal("123450")
+price.toMinorString();    // "123450"
+price.toMinorBigInt();    // 123450n  — safe for 64-bit integer storage
+
+price.toString();          // "1234.50 PHP"     — human-friendly default
+price.toCanonicalString(); // "PHP 123450"       — unambiguous, machine-parseable
+price.format();            // "₱1,234.50"        — localized display string
+```
+
+### Arithmetic Operations (Immutable)
+
+```ts
+const a = MajikMoney.fromMajor(100, "USD");
+const b = MajikMoney.fromMajor(50, "USD");
+
+const sum = a.add(b);               // 150 USD
+const difference = a.subtract(b);   // 50 USD
+const product = a.multiply(3);      // 300 USD
+const quotient = a.divide(4);       // 25 USD
+
+console.log(sum.toString(), difference.toString(), product.toString(), quotient.toString());
+```
+
+### Percentage Operations
+
+```ts
+const price = MajikMoney.fromMajor(200, "PHP");
+
+const cut = price.percentage(0.12);                // 12% of 200
+const priceWithTax = price.addPercentage(0.12);     // 200 + 12%
+const priceAfterDiscount = price.subtractPercentage(0.1); // 10% off
+
+// Reverse a percentage that's already baked into a total:
+const total = MajikMoney.fromMajor(224, "PHP");     // e.g. a 12%-inclusive total
+const base = total.removePercentage(0.12);          // -> 200
+```
+
+### Pricing Mathematics
+
+```ts
+const cost = MajikMoney.fromMajor(500, "PHP");
+
+cost.discount(0.2).format();        // price after 20% off
+cost.discountAmount(0.2).format();  // just the amount taken off
+cost.markup(0.35).format();         // selling price after a 35% markup on cost
+cost.markupAmount(0.35).format();   // just the markup amount
+```
+
+### Tax & Fee Mathematics
+
+```ts
+const subtotal = MajikMoney.fromMajor(1000, "PHP");
+
+subtotal.tax(0.12).format();           // the VAT amount on a tax-exclusive base
+subtotal.taxInclusive(0.12).format();  // base + tax = what the customer pays
+
+// Going the other way — given a tax-inclusive receipt total:
+const receiptTotal = MajikMoney.fromMajor(1120, "PHP");
+receiptTotal.taxExclusive(0.12).format(); // -> ₱1,000.00 (the base)
+receiptTotal.taxComponent(0.12).format(); // -> ₱120.00  (just the tax)
+
+subtotal.feePercentage(0.029).format();               // a percentage-based processor fee
+subtotal.feeAmount(MajikMoney.fromMajor(15, "PHP")).format(); // + a flat fee
+```
+
+### Compound Growth
+
+```ts
+const principal = MajikMoney.fromMajor(1000, "USD");
+const futureValue = principal.compound(0.05, 3); // 5% per period for 3 periods
+console.log(futureValue.format()); // "$1,157.63" (example)
+```
+
+### Allocation / Splitting
+
+```ts
+const total = MajikMoney.fromMajor(1000, "PHP");
+
+// Even split
+const parts = total.evenSplit(3);
+parts.forEach(p => console.log(p.format())); // ₱333.34, ₱333.33, ₱333.33
+
+// Custom allocation ratios
+const allocated = total.allocate([1, 2, 3]);
+allocated.forEach(p => console.log(p.format())); // ₱166.67, ₱333.33, ₱500.00
+
+// Explicit percentages (must sum to ~100)
+const revenueShare = total.allocatePercentages([60, 30, 10]);
+revenueShare.forEach(p => console.log(p.format())); // ₱600.00, ₱300.00, ₱100.00
+```
+
+### Rounding
+
+```ts
+const raw = MajikMoney.fromMajor(1234.57, "PHP");
+
+raw.round().format();          // nearest whole unit -> ₱1,235.00
+raw.roundTo(0.25).format();    // nearest quarter -> ₱1,234.50
+raw.cashRound().format();      // nearest physical cash denomination for the currency
+```
+
+> `cashRound()` reads an optional `cashRoundingIncrement` (major units) off the currency definition. Currencies without one behave as a no-op.
+
+### Comparison & Utility Methods
+
+```ts
+const x = MajikMoney.fromMajor(100, "USD");
+const y = MajikMoney.fromMajor(50, "USD");
+
+x.equals(y);            // false
+x.equalsWithin(y, 500);  // tolerance-based equality, in minor units
+x.compare(y);            // 1  (standard -1 | 0 | 1 comparator, for Array.prototype.sort)
+
+x.greaterThan(y);        // true
+x.greaterThanOrEqual(y); // true
+x.lessThan(y);           // false
+x.lessThanOrEqual(y);    // false
+
+x.isPositive();          // true
+x.isNegative();          // false
+x.isNonNegative();       // true
+x.isZero();              // false
+x.sign();                // 1
+x.negate().isNegative(); // true
+x.abs().format();        // "$100.00"
+
+x.min(y).format();       // "$50.00"
+x.max(y).format();       // "$100.00"
+x.clamp(y, MajikMoney.fromMajor(80, "USD")).format(); // "$80.00" — clamped into [y, 80]
+```
+
+### Ratios & Inverted Operations
+
+```ts
+const x = MajikMoney.fromMajor(200, "PHP");
+console.log(x.ratio(MajikMoney.fromMajor(50, "PHP"))); // 4
+console.log(x.percentageOf(MajikMoney.fromMajor(800, "PHP"))); // 25 (as in 25%)
+
+const inverted = x.invertDivide(2); // 2 ÷ 200 PHP
+console.log(inverted.toMajor()); // 0.01
+```
+
+### Currency Conversion
+
+```ts
+const usd = MajikMoney.fromMajor(100, "USD");
+
+usd.isSameCurrency(MajikMoney.zero("PHP")); // false
+
+const php = usd.convert(56.75, CURRENCIES["PHP"]);
+console.log(php.format()); // "₱5,675.00"
+
+// Using a quoted FX rate (source per 1 unit of target)
+const php2 = usd.convertFromQuoted(0.01763, CURRENCIES["PHP"]);
+console.log(php2.format());
+```
+
+### Serialization & Deserialization
+
+```ts
+const money = MajikMoney.fromMajor(1234.56, "PHP");
+const json = money.toJSON();
+console.log(json); // { amount: "123456", currency: "PHP", __type: "MajikMoney" }
+
+const parsed = MajikMoney.parseFromJSON(json);
+console.log(parsed.format()); // "₱1,234.56"
+
+// Recursive helpers for complex objects
+const serialized = serializeMoney({ payment: money });
+const deserialized = deserializeMoney(serialized);
+console.log(deserialized.payment.format()); // "₱1,234.56"
+```
+
+### Statistical Helpers (Static Methods)
+
+```ts
+const arr = [
+  MajikMoney.fromMajor(100, "USD"),
+  MajikMoney.fromMajor(200, "USD"),
+  MajikMoney.fromMajor(300, "USD"),
+];
+
+MajikMoney.sum(arr).format();             // "$600.00"
+MajikMoney.average(arr).format();         // "$200.00"
+MajikMoney.weightedAverage(arr, [1, 2, 3]).format(); // "$233.33"
+MajikMoney.median(arr).format();          // "$200.00"
+MajikMoney.min(arr).format();             // "$100.00"
+MajikMoney.max(arr).format();             // "$300.00"
+MajikMoney.standardDeviation(arr).toMajor(); // ~81.65
+```
+
+---
+
+## 📖 API Reference
+
+```ts
+class MajikMoney {
+
+  // Construction
+  static zero(currencyCode)
+  static fromMinor(minor, currencyCode)
+  static fromMajor(amount, currencyCode, rounding?)
+  static parseFromJSON(data)
+
+  // Representation
+  toMinor()
+  toMinorDecimal()
+  toMinorString()
+  toMinorBigInt()
+
+  toMajor()
+  toMajorDecimal()
+  toMajorString(dp?, rounding?)
+
+  toString()
+  toCanonicalString()
+  toJSON()
+  format(locale?)
+
+  // Arithmetic
+  add(other)
+  subtract(other, min?, max?)
+  multiply(factor, rounding?)
+  divide(divisor, rounding?)
+
+  multiplyDecimal(factor)
+  divideDecimal(divisor)
+
+  invertDivide(dividend, rounding?)
+  ratio(other)
+  compound(rate, periods, rounding?)
+
+  // Percentage
+  percentage(rate, rounding?)
+  addPercentage(rate, rounding?)
+  subtractPercentage(rate, rounding?)
+  removePercentage(rate, rounding?)
+  percentageOf(total)
+
+  // Pricing mathematics
+  discount(rate, rounding?)
+  discountAmount(rate, rounding?)
+  markup(rate, rounding?)
+  markupAmount(rate, rounding?)
+
+  // Tax/fee mathematics
+  tax(rate, rounding?)
+  taxInclusive(rate, rounding?)
+  taxExclusive(rate, rounding?)
+  taxComponent(rate, rounding?)
+  feePercentage(rate, rounding?)
+  feeAmount(flatFee)
+
+  // Allocation
+  allocate(ratios)
+  allocatePercentages(percentages, tolerance?)
+  evenSplit(parts)
+
+  // Rounding
+  round(rounding?)
+  roundTo(increment, rounding?)
+  cashRound(rounding?)
+
+  // Comparison
+  equals(other)
+  equalsWithin(other, toleranceMinorUnits?)
+  compare(other)
+
+  greaterThan(other)
+  greaterThanOrEqual(other)
+  lessThan(other)
+  lessThanOrEqual(other)
+
+  // Sign
+  isZero()
+  isPositive()
+  isNegative()
+  isNonPositive()
+  isNonNegative()
+  sign()
+
+  negate()
+  abs()
+
+  // Bounds
+  min(other)
+  max(other)
+  clamp(min, max)
+
+  // Currency
+  isSameCurrency(other)
+  convert(rate, targetCurrency, rounding?)
+  convertFromQuoted(quotedRate, targetCurrency, rounding?)
+
+  // Statistics (static)
+  static sum(values)
+  static average(values)
+  static weightedAverage(values, weights)
+  static median(values)
+  static min(values)
+  static max(values)
+  static variance(values)
+  static standardDeviation(values)
+}
+
+function serializeMoney(obj)
+function deserializeMoney(obj)
+```
+
+---
+
+## Use Cases
+
+- Accounting and ledger operations with exact arithmetic.
+- Point-of-sale and e-commerce pricing: discounts, markups, tax-inclusive/exclusive totals.
+- Currency conversion for fintech or e-commerce apps.
+- Payroll, expense splitting, and revenue-share allocation.
+- Budgeting and expense tracking with precise calculations.
+- Financial dashboards or calculators.
+- Simulations for investments or payments over time.
+
+## Best Practices
+
+- Always use `MajikMoney` objects instead of raw numbers for calculations.
+- Avoid mixing currencies without an explicit conversion rate — cross-currency operations throw by design.
+- Serialize with `toJSON()` for storage and communication; use `toCanonicalString()` for logs and cache keys.
+- Use chainable operations for concise and readable code.
+- Prefer `toMajor()` / `format()` for display to users, and `toMinor()` / `toMinorBigInt()` for storage or calculations.
+- Use the tax/pricing-specific methods (`taxInclusive`, `taxExclusive`, `discount`, `markup`, ...) over raw `addPercentage`/`subtractPercentage` where they apply — the intent is clearer and harder to get backwards.
+
+---
+
+## Contributing
+
+Contributions, bug reports, and suggestions are welcome! Feel free to fork and open a pull request.
+
+---
+
+## License
+
+[Apache-2.0](LICENSE) — free for personal and commercial use.
+
+---
+
+## Author
+
+Made with 💙 by [@thezelijah](https://github.com/jedlsf)
+
+## About the Developer
+
+- **Developer**: Josef Elijah Fabian
+- **GitHub**: [https://github.com/jedlsf](https://github.com/jedlsf)
+- **Project Repository**: [https://github.com/jedlsf/majik-money](https://github.com/jedlsf/majik-money)
+
+---
+
+## Contact
+
+- **Business Email**: [business@thezelijah.world](mailto:business@thezelijah.world)
+- **Official Website**: [https://www.thezelijah.world](https://www.thezelijah.world)
+
+---

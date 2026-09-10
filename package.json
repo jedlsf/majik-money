@@ -15,6 +15,10 @@
     "type": "git",
     "url": "git+https://github.com/jedlsf/majik-money.git"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/jedlsf"
+  },
   "keywords": [
     "money",
     "currency",
@@ -34,12 +38,18 @@
     "url": "https://github.com/jedlsf/majik-money/issues"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "package": "npm run build && npm version patch && git push && git push --tags",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",
-    "typescript": "^5.9.3"
+    "vitest": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }
