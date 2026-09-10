@@ -1,11 +1,14 @@
 # Majik Money
 
+[![Developed by Zelijah](https://img.shields.io/badge/Developed%20by-Zelijah-red?logo=github&logoColor=white)](https://thezelijah.world) ![GitHub Sponsors](https://img.shields.io/github/sponsors/jedlsf?style=plastic&label=Sponsors&link=https%3A%2F%2Fgithub.com%2Fsponsors%2Fjedlsf)
+![npm](https://img.shields.io/npm/v/@thezelijah/majik-money) ![npm downloads](https://img.shields.io/npm/dm/@thezelijah/majik-money) ![npm bundle size](https://img.shields.io/bundlephobia/min/%40thezelijah%2Fmajik-money) [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) ![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)
+
 **Majik Money** lightweight JavaScript/TypeScript library for precise money and currency modeling, engineered to eliminate floating-point errors inherent in JavaScript. 
 It’s perfect for scenarios where you need **financial calculations, currency conversions, accounting operations, or money-based simulations** with exact results.
 
 ---
 
-## ✨ Features
+## Features
 
 - Represent money and currencies with full decimal precision using [decimal.js](https://www.npmjs.com/package/decimal.js).
 - Perform arithmetic operations (add, subtract, multiply, divide) without floating-point errors.
@@ -244,7 +247,7 @@ Contributions, bug reports, and suggestions are welcome! Feel free to fork and o
 
 ## License
 
-[ISC](LICENSE) — free for personal and commercial use.
+[Apache-2.0](LICENSE) — free for personal and commercial use.
 
 ---
 
